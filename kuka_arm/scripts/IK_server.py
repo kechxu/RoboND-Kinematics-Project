@@ -66,7 +66,7 @@ def handle_calculate_IK(req):
     theta1, theta2, theta3, theta4, theta5, theta6, theta7 = symbols('theta1:8')
 
     # Create Modified DH parameters
-    s = {alpha0:     0, a0:      0, d1: 0.75
+    s = {alpha0:     0, a0:      0, d1: 0.75,
          alpha1: -pi/2, a1:   0.35, d2:    0, theta2: q2-pi/2,
          alpha2:     0, a2:   1.25, d3:    0,
          alpha3: -pi/2, a3: -0.054, d4: 1.50,
@@ -118,9 +118,9 @@ def handle_calculate_IK(req):
         # IK code starts here
         joint_trajectory_point = JointTrajectoryPoint()
 
-    # Extract end-effector position and orientation from request
-    # px,py,pz = end-effector position
-    # roll, pitch, yaw = end-effector orientation
+        # Extract end-effector position and orientation from request
+        # px,py,pz = end-effector position
+        # roll, pitch, yaw = end-effector orientation
         px = req.poses[x].position.x
         py = req.poses[x].position.y
         pz = req.poses[x].position.z
@@ -128,20 +128,51 @@ def handle_calculate_IK(req):
         (roll, pitch, yaw) = tf.transformations.euler_from_quaternion(
             [req.poses[x].orientation.x, req.poses[x].orientation.y,
                 req.poses[x].orientation.z, req.poses[x].orientation.w])
+        
+        r, p, y = symbols('r p y')
+        R_roll = rot_x(r)
+        R_pitch = rot_y(p)
+        R_yaw = rot_z(y)
+        R_error = R_yaw.subs(y, pi) * R_yaw.subs(p, -pi/2.0)
 
-        ### Your IK code here
-    # Compensate for rotation discrepancy between DH parameters and Gazebo
-    #
-    #
-    # Calculate joint angles using Geometric IK method
-    #
-    #
-        ###
+        R_EE = R_yaw * R_pitch * R_roll * R_error  # Extrinsic Rotation
+        R_EE = Rot_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
 
-        # Populate response for the IK request
-        # In the next line replace theta1,theta2...,theta6 by your joint angle variables
-    joint_trajectory_point.positions = [joint1, joint2, joint3, joint4, joint5, joint6]
-    joint_trajectory_list.append(joint_trajectory_point)
+        EE = Matrix([[px], [py], [pz]])
+
+        WC = EE - (0.303) * R_EE[:, 2]
+
+        # Calculate joint angles using Geometric IK method
+        joint1 = atan2(WC[1], WC[0])
+
+        side_a = 1.501
+        side_b = sqrt(pow(sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35, 2) + \
+                      pow(WC[2] - 0.75, 2))
+        side_c = 1.25
+
+        angle_a = acos((side_b * side_b + side_c * side_c - side_a * side_a) / \
+                       (2 * side_b * side_c))
+        angle_b = acos((side_c * side_c + side_a * side_a - side_b * side_b) / \
+                       (2 * side_c * side_a))
+        angle_c = acos((side_a * side_a + side_b * side_b - side_c * side_c) / \
+                       (2 * side_a * side_b))
+
+        joint2 = pi / 2 - angle_a - \
+                 atan2(WC[2] - 0.75, sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35)
+        joint3 = pi / 2 - (angle_b + 0.036)
+
+        R0_3 = T0_1[0:3, 0:3] * T1_2[0:3, 0:3] * T2_3[0:3, 0:3]
+        R0_3 = R0_3.evalf(subs={theta1: joint1, theta2: joint2, theta3: joint3})
+        R3_6 = R0_3.inv("LU") * R_EE
+
+        joint4 = atan2(R3_6[2, 2], -R3_6[0, 2])
+        joint5 = atan2(sqrt(R3_6[0, 2] * R3_6[0, 2] + R3_6[2, 2] * R3_6[2, 2]), R3_6[1, 2])
+        joint6 = atan2(-R3_6[1, 1], R3_6[1, 0])
+
+        # Populate response for the IK request        
+        joint_trajectory_point.positions = \
+            [joint1, joint2, joint3, joint4, joint5, joint6]
+        joint_trajectory_list.append(joint_trajectory_point)
 
     rospy.loginfo("length of Joint Trajectory List: %s" % len(joint_trajectory_list))
     return CalculateIKResponse(joint_trajectory_list)

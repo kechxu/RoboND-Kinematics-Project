@@ -1,0 +1,286 @@
+## Project: Kinematics Pick & Place
+
+---
+
+
+**Steps to complete the project:**  
+
+
+1. Set up your ROS Workspace.
+2. Download or clone the [project repository](https://github.com/udacity/RoboND-Kinematics-Project) into the ***src*** directory of your ROS Workspace.  
+3. Experiment with the forward_kinematics environment and get familiar with the robot.
+4. Launch in [demo mode](https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/ae64bb91-e8c4-44c9-adbe-798e8f688193).
+5. Perform Kinematic Analysis for the robot following the [project rubric](https://review.udacity.com/#!/rubrics/972/view).
+6. Fill in the `IK_server.py` with your Inverse Kinematics code. 
+
+
+[//]: # (Image References)
+
+[image1]: ./misc_images/misc1.png
+[image2]: ./misc_images/misc3.png
+[image3]: ./misc_images/misc2.png
+
+## [Rubric](https://review.udacity.com/#!/rubrics/972/view) Points
+### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
+
+---
+
+### Kinematic Analysis
+#### 1. Run the forward_kinematics demo and evaluate the kr210.urdf.xacro file to perform kinematic analysis of Kuka KR210 robot and derive its DH parameters.
+
+$i$ | $\alpha_i$ | $a_i$ | $d_{i+1}$ | $\theta_{i+1}$
+--- | --- | --- | --- | ---
+0 |        0 |      0 |  0.75 | $\theta_1$
+1 | -$\pi/2$ |   0.35 |     0 | $\theta_2$-$\pi/2$
+2 |        0 |   1.25 |     0 | $\theta_3$
+3 | -$\pi/2$ | -0.054 |  1.50 | $\theta_4$
+4 |  $\pi/2$ |      0 |     0 | $\theta_5$
+5 | -$\pi/2$ |      0 |     0 | $\theta_6$
+6 |        0 |      0 | 0.303 | $\theta_7$
+
+#### 2. Using the DH parameter table you derived earlier, create individual transformation matrices about each joint. In addition, also generate a generalized homogeneous transform between base_link and gripper_link using only end-effector(gripper) pose.
+
+I first defined some util functions to compute rotation matrices about x, y, z axes, homogenous transform matrix, and DH matrix.
+```python
+def rot_x(q):
+    R_x = Matrix([[1., 0, 0],
+                  [0, cos(q), -sin(q)],
+                  [0, sin(q),  cos(q)]])
+    return R_x
+
+
+def rot_y(q):
+    R_y = Matrix([[cos(q), 0, sin(q)],
+                  [0, 1., 0],
+                  [-sin(q), 0, cos(q)]])
+    return R_y
+
+
+def rot_z(q):
+    R_z = Matrix([[cos(q), -sin(q), 0],
+                  [sin(q), cos(q), 0],
+                  [0, 0, 1.]])
+    return R_z
+
+
+def ht_matrix(R, t):
+    ht = R.row_join(t)
+    ht = ht.col_join(Matrix([[0, 0, 0, 1.]]))
+    return ht
+
+
+def dh_matrix(alpha, a, d, theta):
+    return Matrix([[cos(theta), -sin(theta), 0, a],
+        [sin(theta) * cos(alpha), cos(theta) * cos(alpha), -sin(alpha), -sin(alpha) * d],
+        [sin(theta) * sin(alpha), cos(theta) * sin(alpha), cos(alpha), cos(alpha) * d],
+        [0, 0, 0, 1]])
+```
+
+Then it would be really easy to build the homogenous transform matrices and the final DH matrix.
+
+```python
+# Define Modified DH Transformation matrix
+T0_1 = dh_matrix(alpha0, a0, d1, theta1)
+T0_1 = T0_1.subs(s)
+
+T1_2 = dh_matrix(alpha1, a1, d2, theta2)
+T1_2 = T1_2.subs(s)
+
+T2_3 = dh_matrix(alpha2, a2, d3, theta3)
+T2_3 = T2_3.subs(s)
+
+T3_4 = dh_matrix(alpha3, a3, d4, theta4)
+T3_4 = T3_4.subs(s)
+
+T4_5 = dh_matrix(alpha4, a4, d5, theta5)
+T4_5 = T4_5.subs(s)
+
+T5_6 = dh_matrix(alpha5, a5, d6, theta6)
+T5_6 = T5_6.subs(s)
+
+T6_7 = dh_matrix(alpha6, a6, d7, theta7)
+T6_7 = T6_7.subs(s)
+
+# Build accumulated homogeneous transforms
+T0_2 = simplify(T0_1 * T1_2)
+T0_3 = simplify(T0_2 * T2_3)
+T0_4 = simplify(T0_3 * T3_4)
+T0_5 = simplify(T0_4 * T4_5)
+T0_6 = simplify(T0_5 * T5_6)
+T0_7 = simplify(T0_6 * T6_7)
+
+# Correction of gripper's rotation
+R_z = ht_matrix(rot_z(np.pi), 0)
+R_y = ht_matrix(rot_y(-np.pi/2), 0)
+R_corr = simplify(R_z * R_y)
+
+# Transform matrix from base link to gripper link
+T = simplify(T0_7 * R_corr)
+```
+
+#### 3. Decouple Inverse Kinematics problem into Inverse Position Kinematics and inverse Orientation Kinematics; doing so derive the equations to calculate all individual joint angles.
+
+And here's where you can draw out and show your math for the derivation of your theta angles. 
+
+![alt text][image2]
+
+Before the derivation, let me denote some terminoligies. We denote the edge between $O_2$ and $O_3$ as $a$, denote the edge between $O_2$ and $WC$ as $b$, denote the edge between $O_3$ and $WC$ as $c$, and the corresponding angles as $A$, $B$, and $C$.
+
+In the coordinate system at $O_2$,
+
+$y_{2, wc} = \sqrt{x_{wc}^2 + y_{wc}^2} - 0.35$
+
+$x_{2, wc} = z_{2, wc}-0.75$
+
+Thus, $b = \sqrt{x_{2, wc}^2 + y_{2, wc}^2}$
+
+$a = 1.501, c = 1.25$
+
+By Cosine Thoerem,
+
+$\cos{A} = \frac{b^2+c^2-a^2}{2bc} \Rightarrow A = \arccos(\frac{b^2+c^2-a^2}{2bc})$
+
+$\cos{B} = \frac{c^2+a^2-b^2}{2ca} \Rightarrow B = \arccos(\frac{c^2+a^2-b^2}{2ca})$
+
+$\cos{C} = \frac{a^2+b^2-c^2}{2ab} \Rightarrow C = \arccos(\frac{a^2+b^2-c^2}{2ab})$
+
+$\theta_2 = \pi/2 - A + arctan(\frac{y_{2,wc}}{x_2,wc})$
+
+$B = \pi/2 - arctan(0.054/0.96)-\theta_3$
+
+$\theta_3 = \pi/2 - 0.036 - B$
+
+### Project Implementation
+
+#### 1. Fill in the `IK_server.py` file with properly commented python code for calculating Inverse Kinematics based on previously performed Kinematic Analysis. Your code must guide the robot to successfully complete 8/10 pick and place cycles. Briefly discuss the code you implemented and your results. 
+
+
+Here I'll talk about the code, what techniques I used, what worked and why, where the implementation might fail and how I might improve it if I were going to pursue this project further.  
+
+```python
+def handle_calculate_IK(req):
+    rospy.loginfo("Received %s eef-poses from the plan" % len(req.poses))
+    if len(req.poses) < 1:
+        print "No valid poses received"
+        return -1
+
+    # Create symbols
+    alpha0, alpha1, alpha2, alpha3, alpha4, alpha5, alpha6 = symbols('alpha0:7')
+    a0, a1, a2, a3, a4, a5, a6 = symbols('a0:7')
+    d1, d2, d3, d4, d5, d6, d7 = symbols('d1:8')
+    theta1, theta2, theta3, theta4, theta5, theta6, theta7 = symbols('theta1:8')
+
+    # Create Modified DH parameters
+    s = {alpha0:     0, a0:      0, d1: 0.75,
+         alpha1: -pi/2, a1:   0.35, d2:    0, theta2: q2-pi/2,
+         alpha2:     0, a2:   1.25, d3:    0,
+         alpha3: -pi/2, a3: -0.054, d4: 1.50,
+         alpha4:  pi/2, a4:      0, d5:    0,
+         alpha5: -pi/2, a5:      0, d6:    0,
+         alpha6:     0, a6:      0, d7: 0.303, theta7: 0}
+
+    # Define Modified DH Transformation matrix
+    T0_1 = dh_matrix(alpha0, a0, d1, theta1)
+    T0_1 = T0_1.subs(s)
+
+    T1_2 = dh_matrix(alpha1, a1, d2, theta2)
+    T1_2 = T1_2.subs(s)
+
+    T2_3 = dh_matrix(alpha2, a2, d3, theta3)
+    T2_3 = T2_3.subs(s)
+
+    T3_4 = dh_matrix(alpha3, a3, d4, theta4)
+    T3_4 = T3_4.subs(s)
+
+    T4_5 = dh_matrix(alpha4, a4, d5, theta5)
+    T4_5 = T4_5.subs(s)
+
+    T5_6 = dh_matrix(alpha5, a5, d6, theta6)
+    T5_6 = T5_6.subs(s)
+
+    T6_7 = dh_matrix(alpha6, a6, d7, theta7)
+    T6_7 = T6_7.subs(s)
+
+    # Build accumulated homogeneous transforms
+    T0_2 = simplify(T0_1 * T1_2)
+    T0_3 = simplify(T0_2 * T2_3)
+    T0_4 = simplify(T0_3 * T3_4)
+    T0_5 = simplify(T0_4 * T4_5)
+    T0_6 = simplify(T0_5 * T5_6)
+    T0_7 = simplify(T0_6 * T6_7)
+
+    # Correction of gripper's rotation
+    R_z = ht_matrix(rot_z(np.pi), 0)
+    R_y = ht_matrix(rot_y(-np.pi/2), 0)
+    R_corr = simplify(R_z * R_y)
+
+    # Transform matrix from base link to gripper link
+    T = simplify(T0_7 * R_corr)
+
+    # Initialize service response
+    joint_trajectory_list = []
+    for x in xrange(0, len(req.poses)):
+        # IK code starts here
+        joint_trajectory_point = JointTrajectoryPoint()
+
+        # Extract end-effector position and orientation from request
+        # px,py,pz = end-effector position
+        # roll, pitch, yaw = end-effector orientation
+        px = req.poses[x].position.x
+        py = req.poses[x].position.y
+        pz = req.poses[x].position.z
+
+        (roll, pitch, yaw) = tf.transformations.euler_from_quaternion(
+            [req.poses[x].orientation.x, req.poses[x].orientation.y,
+                req.poses[x].orientation.z, req.poses[x].orientation.w])
+        
+        r, p, y = symbols('r p y')
+        R_roll = rot_x(r)
+        R_pitch = rot_y(p)
+        R_yaw = rot_z(y)
+        R_error = R_yaw.subs(y, pi) * R_yaw.subs(p, -pi/2.0)
+
+        R_EE = R_yaw * R_pitch * R_roll * R_error  # Extrinsic Rotation
+        R_EE = Rot_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
+
+        EE = Matrix([[px], [py], [pz]])
+
+        WC = EE - (0.303) * R_EE[:, 2]
+
+        # Calculate joint angles using Geometric IK method
+        joint1 = atan2(WC[1], WC[0])
+
+        side_a = 1.501
+        side_b = sqrt(pow(sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35, 2) + \
+                      pow(WC[2] - 0.75, 2))
+        side_c = 1.25
+
+        angle_a = acos((side_b * side_b + side_c * side_c - side_a * side_a) / \
+                       (2 * side_b * side_c))
+        angle_b = acos((side_c * side_c + side_a * side_a - side_b * side_b) / \
+                       (2 * side_c * side_a))
+        angle_c = acos((side_a * side_a + side_b * side_b - side_c * side_c) / \
+                       (2 * side_a * side_b))
+
+        joint2 = pi / 2 - angle_a - \
+                 atan2(WC[2] - 0.75, sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35)
+        joint3 = pi / 2 - (angle_b + 0.036)
+
+        R0_3 = T0_1[0:3, 0:3] * T1_2[0:3, 0:3] * T2_3[0:3, 0:3]
+        R0_3 = R0_3.evalf(subs={theta1: joint1, theta2: joint2, theta3: joint3})
+        R3_6 = R0_3.inv("LU") * R_EE
+
+        joint4 = atan2(R3_6[2, 2], -R3_6[0, 2])
+        joint5 = atan2(sqrt(R3_6[0, 2] * R3_6[0, 2] + R3_6[2, 2] * R3_6[2, 2]), R3_6[1, 2])
+        joint6 = atan2(-R3_6[1, 1], R3_6[1, 0])
+
+        # Populate response for the IK request        
+        joint_trajectory_point.positions = \
+            [joint1, joint2, joint3, joint4, joint5, joint6]
+        joint_trajectory_list.append(joint_trajectory_point)
+
+    rospy.loginfo("length of Joint Trajectory List: %s" % len(joint_trajectory_list))
+    return CalculateIKResponse(joint_trajectory_list)
+```
+
+

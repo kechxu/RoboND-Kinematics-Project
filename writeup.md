@@ -16,9 +16,10 @@
 
 [//]: # (Image References)
 
-[image1]: ./misc_images/misc1.png
-[image2]: ./misc_images/misc3.png
-[image3]: ./misc_images/misc2.png
+[image1]: ./misc_images/simulation_console.png
+[image2]: ./misc_images/arm_structure.png
+[image3]: ./misc_images/wc_coordinates.png
+[image4]: ./misc_images/result.png
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/972/view) Points
 ### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
@@ -28,259 +29,194 @@
 ### Kinematic Analysis
 #### 1. Run the forward_kinematics demo and evaluate the kr210.urdf.xacro file to perform kinematic analysis of Kuka KR210 robot and derive its DH parameters.
 
-$i$ | $\alpha_i$ | $a_i$ | $d_{i+1}$ | $\theta_{i+1}$
---- | --- | --- | --- | ---
-0 |        0 |      0 |  0.75 | $\theta_1$
-1 | -$\pi/2$ |   0.35 |     0 | $\theta_2$-$\pi/2$
-2 |        0 |   1.25 |     0 | $\theta_3$
-3 | -$\pi/2$ | -0.054 |  1.50 | $\theta_4$
-4 |  $\pi/2$ |      0 |     0 | $\theta_5$
-5 | -$\pi/2$ |      0 |     0 | $\theta_6$
-6 |        0 |      0 | 0.303 | $\theta_7$
+![alt text][image1]Figure 1: Screenshot of the simulation console of forward kinematics.
+
 
 #### 2. Using the DH parameter table you derived earlier, create individual transformation matrices about each joint. In addition, also generate a generalized homogeneous transform between base_link and gripper_link using only end-effector(gripper) pose.
 
-I first defined some util functions to compute rotation matrices about x, y, z axes, homogenous transform matrix, and DH matrix.
-```python
-def rot_x(q):
-    R_x = Matrix([[1., 0, 0],
-                  [0, cos(q), -sin(q)],
-                  [0, sin(q),  cos(q)]])
-    return R_x
+##### 2.1 DH parameter table
+
+The kinematic analysis can be found in the Figure 2. And the initial DH parameter table is defined in Table 1.
+![alt text][image2]Figure 2: Coordinates and DH parameters.
+
+$i$ | $\alpha_{i-1}$ | $a_{i-1}$ | $d_i$ | $\theta_i$
+--- | --- | --- | --- | ---
+1 |        0 |      0 |  $d_1$ | $\theta_1$
+2 | -$\pi/2$ |   $a_1$ |     0 | $\theta_2$-$\pi/2$
+3 |        0 |   $a_2$ |     0 | $\theta_3$
+4 | -$\pi/2$ |   $a_3$ |  $d_4$ | $\theta_4$
+5 |  $\pi/2$ |      0 |     0 | $\theta_5$
+6 | -$\pi/2$ |      0 |     0 | $\theta_6$
+7 |        0 |      0 | $d_7$ | 0
+
+Table 1: Initial DH parameter table. The parameters are to be determined.
 
 
-def rot_y(q):
-    R_y = Matrix([[cos(q), 0, sin(q)],
-                  [0, 1., 0],
-                  [-sin(q), 0, cos(q)]])
-    return R_y
+According to the URDF file, we can derive the DH parameters as below.
 
+$d_1 = Z_{joint1} + Z_{joint2} = 0.33 + 0.42 = 0.75$
+$d_4 = X_{joint4} + X_{joint5} = 0.96 + 0.54 = 1.5$
+$d_7 = X_{joint6} + X_{gripper} = 0.193 + 0.11 = 0.303$
+$a_1 = X_{joint2} = 0.55$
+$a_2 = Z_{joint3} = 1.25$
+$a_3 = Z_{joint4} = -0.054$
 
-def rot_z(q):
-    R_z = Matrix([[cos(q), -sin(q), 0],
-                  [sin(q), cos(q), 0],
-                  [0, 0, 1.]])
-    return R_z
+Then, the DH parameter table can be updated as Table 2.
 
+$i$ | $\alpha_{i-1}$ | $a_{i-1}$ | $d_i$ | $\theta_i$
+--- | --- | --- | --- | ---
+1 |        0 |      0 |  0.75 | $\theta_1$
+2 | -$\pi/2$ |   0.55 |     0 | $\theta_2$-$\pi/2$
+3 |        0 |   1.25 |     0 | $\theta_3$
+4 | -$\pi/2$ | -0.054 |  1.50 | $\theta_4$
+5 |  $\pi/2$ |      0 |     0 | $\theta_5$
+6 | -$\pi/2$ |      0 |     0 | $\theta_6$
+7 |        0 |      0 | 0.303 | 0
 
-def ht_matrix(R, t):
-    ht = R.row_join(t)
-    ht = ht.col_join(Matrix([[0, 0, 0, 1.]]))
-    return ht
+Table 2: DH parameter table with the parameters calculated.
 
+##### 2.1 Transform matrices
 
-def dh_matrix(alpha, a, d, theta):
-    return Matrix([[cos(theta), -sin(theta), 0, a],
-        [sin(theta) * cos(alpha), cos(theta) * cos(alpha), -sin(alpha), -sin(alpha) * d],
-        [sin(theta) * sin(alpha), cos(theta) * sin(alpha), cos(alpha), cos(alpha) * d],
-        [0, 0, 0, 1]])
-```
+$$T_1^0 = \begin{pmatrix}\cos(\theta_1) & -\sin(\theta_1) & 0 & a_0 \\\
+    \sin(\theta_1)\cos(\alpha_0) & \cos(\theta_1)\cos(\alpha_0) & -\sin(\alpha_0) & -\sin(\alpha_0)d_1 \\\
+    \sin(\theta_1)\sin(\alpha_0) & \cos(\theta_1)\sin(\alpha_0) & \cos(\alpha_0) & \cos(\alpha_0)d_1 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-Then it would be really easy to build the homogenous transform matrices and the final DH matrix.
+$$T_2^1 = \begin{pmatrix}\cos(\theta_2) & -\sin(\theta_2) & 0 & a_1 \\\
+    \sin(\theta_2)\cos(\alpha_1) & \cos(\theta_2)\cos(\alpha_1) & -\sin(\alpha_1) & -\sin(\alpha_1)d_2 \\\
+    \sin(\theta_2)\sin(\alpha_1) & \cos(\theta_2)\sin(\alpha_1) & \cos(\alpha_1) & \cos(\alpha_1)d_2 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-```python
-# Define Modified DH Transformation matrix
-T0_1 = dh_matrix(alpha0, a0, d1, theta1)
-T0_1 = T0_1.subs(s)
+$$T_3^2 = \begin{pmatrix}\cos(\theta_3) & -\sin(\theta_3) & 0 & a_2 \\\
+    \sin(\theta_3)\cos(\alpha_2) & \cos(\theta_3)\cos(\alpha_2) & -\sin(\alpha_2) & -\sin(\alpha_2)d_3 \\\
+    \sin(\theta_3)\sin(\alpha_2) & \cos(\theta_3)\sin(\alpha_2) & \cos(\alpha_2) & \cos(\alpha_2)d_3 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-T1_2 = dh_matrix(alpha1, a1, d2, theta2)
-T1_2 = T1_2.subs(s)
+$$T_4^3 = \begin{pmatrix}\cos(\theta_4) & -\sin(\theta_4) & 0 & a_3 \\\
+    \sin(\theta_4)\cos(\alpha_3) & \cos(\theta_4)\cos(\alpha_3) & -\sin(\alpha_3) & -\sin(\alpha_3)d_4 \\\
+    \sin(\theta_4)\sin(\alpha_3) & \cos(\theta_4)\sin(\alpha_3) & \cos(\alpha_3) & \cos(\alpha_3)d_4 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-T2_3 = dh_matrix(alpha2, a2, d3, theta3)
-T2_3 = T2_3.subs(s)
+$$T_5^4 = \begin{pmatrix}\cos(\theta_5) & -\sin(\theta_5) & 0 & a_4 \\\
+    \sin(\theta_5)\cos(\alpha_4) & \cos(\theta_5)\cos(\alpha_4) & -\sin(\alpha_4) & -\sin(\alpha_4)d_5 \\\
+    \sin(\theta_5)\sin(\alpha_4) & \cos(\theta_5)\sin(\alpha_4) & \cos(\alpha_4) & \cos(\alpha_4)d_5 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-T3_4 = dh_matrix(alpha3, a3, d4, theta4)
-T3_4 = T3_4.subs(s)
+$$T_6^5 = \begin{pmatrix}\cos(\theta_6) & -\sin(\theta_6) & 0 & a_5 \\\
+    \sin(\theta_6)\cos(\alpha_5) & \cos(\theta_6)\cos(\alpha_5) & -\sin(\alpha_5) & -\sin(\alpha_5)d_6 \\\
+    \sin(\theta_6)\sin(\alpha_5) & \cos(\theta_6)\sin(\alpha_5) & \cos(\alpha_5) & \cos(\alpha_5)d_6 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-T4_5 = dh_matrix(alpha4, a4, d5, theta5)
-T4_5 = T4_5.subs(s)
+$$T_G^6 = \begin{pmatrix}\cos(\theta_7) & -\sin(\theta_7) & 0 & a_6 \\\
+    \sin(\theta_7)\cos(\alpha_6) & \cos(\theta_7)\cos(\alpha_6) & -\sin(\alpha_6) & -\sin(\alpha_6)d_7 \\\
+    \sin(\theta_7)\sin(\alpha_6) & \cos(\theta_7)\sin(\alpha_6) & \cos(\alpha_6) & \cos(\alpha_6)d_7 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-T5_6 = dh_matrix(alpha5, a5, d6, theta6)
-T5_6 = T5_6.subs(s)
+According to the difference in orientation in gripper coordinates frame
 
-T6_7 = dh_matrix(alpha6, a6, d7, theta7)
-T6_7 = T6_7.subs(s)
+$$T_{gy} = \begin{pmatrix}\cos(-\pi/2) & 0 & \sin(-\pi/2) & 0 \\\
+    0 & 1 & 0 & 0 \\\
+    -\sin(-\pi/2) & 0 & \cos(-\pi/2) & 0 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-# Build accumulated homogeneous transforms
-T0_2 = simplify(T0_1 * T1_2)
-T0_3 = simplify(T0_2 * T2_3)
-T0_4 = simplify(T0_3 * T3_4)
-T0_5 = simplify(T0_4 * T4_5)
-T0_6 = simplify(T0_5 * T5_6)
-T0_7 = simplify(T0_6 * T6_7)
+$$T_{gz} = \begin{pmatrix}\cos(\pi) & -\sin(\pi) & 0 & 0 \\\
+    \sin(\pi) & \cos(\pi) & 0 & 0 \\\
+    0 & 0 & 1 & 0 \\\
+    0 & 0 & 0 & 1 \end{pmatrix}$$
 
-# Correction of gripper's rotation
-R_z = ht_matrix(rot_z(np.pi), 0)
-R_y = ht_matrix(rot_y(-np.pi/2), 0)
-R_corr = simplify(R_z * R_y)
+Therefore, the whole transform matrix is
 
-# Transform matrix from base link to gripper link
-T = simplify(T0_7 * R_corr)
-```
+$$T_G^0 = T_1^0 \cdot T_2^1 \cdot T_3^2 \cdot T_4^3 \cdot T_5^4 \cdot T_6^5 \cdot T_G^6 \cdot T_{gy} \cdot T_{gz}$$
+
 
 #### 3. Decouple Inverse Kinematics problem into Inverse Position Kinematics and inverse Orientation Kinematics; doing so derive the equations to calculate all individual joint angles.
 
-And here's where you can draw out and show your math for the derivation of your theta angles. 
+##### 3.1 Rotation matrices and wrist-center positions
+$$R_{roll} = \begin{pmatrix}
+1 & 0 & 0 \\\
+0 & \cos(roll) & -\sin(roll) \\\
+0 & \sin(roll) &  \cos(roll)
+\end{pmatrix}$$
 
-![alt text][image2]
+$$R_{pitch} = \begin{pmatrix}
+\cos(pitch) & 0 & \sin(pitch) \\\
+0 & 1 & 0 \\\
+-\sin(pitch) & 0 & \cos(pitch)
+\end{pmatrix}$$
 
-Before the derivation, let me denote some terminoligies. We denote the edge between $O_2$ and $O_3$ as $a$, denote the edge between $O_2$ and $WC$ as $b$, denote the edge between $O_3$ and $WC$ as $c$, and the corresponding angles as $A$, $B$, and $C$.
+$$R_{yaw} = \begin{pmatrix}
+\cos(yaw) & -\sin(yaw) & 0 \\\
+\sin(yaw) &  \cos(yaw) & 0 \\\
+0 & 0 & 1
+\end{pmatrix}$$
 
-In the coordinate system at $O_2$,
+Then the roll-pitch-yaw rotation matrix is
 
-$y_{2, wc} = \sqrt{x_{wc}^2 + y_{wc}^2} - 0.35$
+$$R_{rpy} = R_{yaw} \cdot R_{pitch} \cdot R_{roll}$$
 
-$x_{2, wc} = z_{2, wc}-0.75$
+The above multiplication is because of extrinsic transform. Finally The coordinate of wrist center is
 
-Thus, $b = \sqrt{x_{2, wc}^2 + y_{2, wc}^2}$
+$$WC = \begin{pmatrix}p_x \\\ p_y \\\ p_z\end{pmatrix} - d_7R_{rpy}\begin{pmatrix}0 \\\ 0 \\\ 0\end{pmatrix}$$
 
-$a = 1.501, c = 1.25$
+![alt text][image3]Figure 3: Wrist center coordinates.
+
+From Figure 3 and Figure 2, we can derive the parameters (Angles a, b, c and Sides A, B, C) by the coordinates of wrist center.
+
+$A = \sqrt{d_4^2 + a_3^2} = \sqrt{1.5^2 + (-0.054)^2} = 1.501$
+
+$B = \sqrt{(\sqrt{X_{wc}^2 + Y_{wc}^2} - 0.35)^2 + (Z_{wc}-0.75)^2}$
+
+$C = a_2 = 1.25$
 
 By Cosine Thoerem,
 
-$\cos{A} = \frac{b^2+c^2-a^2}{2bc} \Rightarrow A = \arccos(\frac{b^2+c^2-a^2}{2bc})$
+$\cos{a} = \frac{B^2+C^2-A^2}{2BC} \Rightarrow a = \arccos(\frac{B^2+C^2-A^2}{2BC})$
 
-$\cos{B} = \frac{c^2+a^2-b^2}{2ca} \Rightarrow B = \arccos(\frac{c^2+a^2-b^2}{2ca})$
+$\cos{b} = \frac{C^2+A^2-B^2}{2CA} \Rightarrow b = \arccos(\frac{C^2+A^2-B^2}{2CA})$
 
-$\cos{C} = \frac{a^2+b^2-c^2}{2ab} \Rightarrow C = \arccos(\frac{a^2+b^2-c^2}{2ab})$
+$\cos{c} = \frac{A^2+B^2-C^2}{2AB} \Rightarrow c = \arccos(\frac{A^2+B^2-C^2}{2AB})$
 
-$\theta_2 = \pi/2 - A + arctan(\frac{y_{2,wc}}{x_2,wc})$
+From Figure 2, we can compute the parameters
 
-$B = \pi/2 - arctan(0.054/0.96)-\theta_3$
+$\theta_1 = \arctan(\frac{Y_{wc}}{X_{wc}})$
 
-$\theta_3 = \pi/2 - 0.036 - B$
+$\theta_2 = \pi/2 - a + \arctan(\frac{Z_{wc}-d_1}{\sqrt{X_{wc}^2 + Y_{wc}^2} - a_1})$
+
+$\theta_3 = \pi/2 - (b + \arctan(a_3/A))$
+
+Using the Homogeneous RPY rotation from base link and gripper link, and the Tranpose of the Rotation matrix from link 0 to link 3, obtain $R_6^3$
+
+$R_3^0 = T_1^0 \cdot T_2^1 \cdot T_3^2$
+
+$R_6^3 = (R_3^0)^T \cdot R_{rpy}$
+
+$$R_6^3 = \begin{pmatrix}
+-\sin(\theta_4)\sin(\theta_6)+\cos(\theta_4)\cos(\theta_5)\cos(\theta_6) &
+-\sin(\theta_4)\cos(\theta_6)-\sin(\theta_6)\cos(\theta_4)\cos(\theta_5) &
+-\sin(\theta_5)\cos(\theta_4) \\\
+\sin(\theta_5)\cos(\theta_6) & -\sin(\theta_5)\sin(\theta_6) & \cos(\theta_5) \\\
+-\sin(\theta_4)\cos(\theta_5)\cos(\theta_6) - \sin(\theta_6)\cos(\theta_4) &
+\sin(\theta_4)\sin(\theta_6)\sin(\theta_5) - \cos(\theta_4)\cos(\theta_6) &
+\sin(\theta_4)\sin(\theta_5)
+\end{pmatrix}$$
+
+Then we can compute $\theta_4$, $\theta_5$, and $\theta_6$ using the elements in $R_6^3$
+
+$\theta_4 = \arctan(\frac{\sin(\theta_4)\sin(\theta_5)}{\cos(\theta_4)\sin(\theta_5)}) = \arctan(\frac{R_6^3[3,3]}{-R_6^3[1,3]})$
+
+$\theta_5 = \arctan\begin{pmatrix}\frac{\sqrt{(-\cos(\theta_4)\sin(\theta_5))^2 + (\sin(\theta_4)\sin(\theta_5))^2}}{\cos(\theta_5)}\end{pmatrix} = \arctan(\frac{\sqrt{(R_6^3[1,3])^2+(R_6^3[3,3])^2}}{R_6^3[2,3]})$
+
+$\theta_6 = \arctan(\frac{\sin(\theta_6)}{\cos(\theta_6)}) = \arctan(\frac{-R_6^3[2,2]}{R_6^3[2,1]})$
+
 
 ### Project Implementation
 
-#### 1. Fill in the `IK_server.py` file with properly commented python code for calculating Inverse Kinematics based on previously performed Kinematic Analysis. Your code must guide the robot to successfully complete 8/10 pick and place cycles. Briefly discuss the code you implemented and your results. 
+#### 1. Fill in the `IK_server.py` file with properly commented python code for calculating Inverse Kinematics based on previously performed Kinematic Analysis. Your code must guide the robot to successfully complete 8/10 pick and place cycles. Briefly discuss the code you implemented and your results.  
 
+The simulation showed that the trayectory was being drawn correctly, and the arm was following the trajectory. After some research and testing with some angle bounderies for the wrist joints, it was suggested on the course group that it may have been because of the API that performs the inverse transform of $R_3^0$ when obtaining $R_6^3$. Further I will test any other fast algorithm to solve the equations.
 
-Here I'll talk about the code, what techniques I used, what worked and why, where the implementation might fail and how I might improve it if I were going to pursue this project further.  
+The following image shows that the algorithm implemented succeeds 8 out of 10 times on average.
 
-```python
-def handle_calculate_IK(req):
-    rospy.loginfo("Received %s eef-poses from the plan" % len(req.poses))
-    if len(req.poses) < 1:
-        print "No valid poses received"
-        return -1
-
-    # Create symbols
-    alpha0, alpha1, alpha2, alpha3, alpha4, alpha5, alpha6 = symbols('alpha0:7')
-    a0, a1, a2, a3, a4, a5, a6 = symbols('a0:7')
-    d1, d2, d3, d4, d5, d6, d7 = symbols('d1:8')
-    theta1, theta2, theta3, theta4, theta5, theta6, theta7 = symbols('theta1:8')
-
-    # Create Modified DH parameters
-    s = {alpha0:     0, a0:      0, d1: 0.75,
-         alpha1: -pi/2, a1:   0.35, d2:    0, theta2: q2-pi/2,
-         alpha2:     0, a2:   1.25, d3:    0,
-         alpha3: -pi/2, a3: -0.054, d4: 1.50,
-         alpha4:  pi/2, a4:      0, d5:    0,
-         alpha5: -pi/2, a5:      0, d6:    0,
-         alpha6:     0, a6:      0, d7: 0.303, theta7: 0}
-
-    # Define Modified DH Transformation matrix
-    T0_1 = dh_matrix(alpha0, a0, d1, theta1)
-    T0_1 = T0_1.subs(s)
-
-    T1_2 = dh_matrix(alpha1, a1, d2, theta2)
-    T1_2 = T1_2.subs(s)
-
-    T2_3 = dh_matrix(alpha2, a2, d3, theta3)
-    T2_3 = T2_3.subs(s)
-
-    T3_4 = dh_matrix(alpha3, a3, d4, theta4)
-    T3_4 = T3_4.subs(s)
-
-    T4_5 = dh_matrix(alpha4, a4, d5, theta5)
-    T4_5 = T4_5.subs(s)
-
-    T5_6 = dh_matrix(alpha5, a5, d6, theta6)
-    T5_6 = T5_6.subs(s)
-
-    T6_7 = dh_matrix(alpha6, a6, d7, theta7)
-    T6_7 = T6_7.subs(s)
-
-    # Build accumulated homogeneous transforms
-    T0_2 = simplify(T0_1 * T1_2)
-    T0_3 = simplify(T0_2 * T2_3)
-    T0_4 = simplify(T0_3 * T3_4)
-    T0_5 = simplify(T0_4 * T4_5)
-    T0_6 = simplify(T0_5 * T5_6)
-    T0_7 = simplify(T0_6 * T6_7)
-
-    # Correction of gripper's rotation
-    R_z = ht_matrix(rot_z(np.pi), 0)
-    R_y = ht_matrix(rot_y(-np.pi/2), 0)
-    R_corr = simplify(R_z * R_y)
-
-    # Transform matrix from base link to gripper link
-    T = simplify(T0_7 * R_corr)
-
-    # Initialize service response
-    joint_trajectory_list = []
-    for x in xrange(0, len(req.poses)):
-        # IK code starts here
-        joint_trajectory_point = JointTrajectoryPoint()
-
-        # Extract end-effector position and orientation from request
-        # px,py,pz = end-effector position
-        # roll, pitch, yaw = end-effector orientation
-        px = req.poses[x].position.x
-        py = req.poses[x].position.y
-        pz = req.poses[x].position.z
-
-        (roll, pitch, yaw) = tf.transformations.euler_from_quaternion(
-            [req.poses[x].orientation.x, req.poses[x].orientation.y,
-                req.poses[x].orientation.z, req.poses[x].orientation.w])
-        
-        r, p, y = symbols('r p y')
-        R_roll = rot_x(r)
-        R_pitch = rot_y(p)
-        R_yaw = rot_z(y)
-        R_error = R_yaw.subs(y, pi) * R_yaw.subs(p, -pi/2.0)
-
-        R_EE = R_yaw * R_pitch * R_roll * R_error  # Extrinsic Rotation
-        R_EE = Rot_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
-
-        EE = Matrix([[px], [py], [pz]])
-
-        WC = EE - (0.303) * R_EE[:, 2]
-
-        # Calculate joint angles using Geometric IK method
-        joint1 = atan2(WC[1], WC[0])
-
-        side_a = 1.501
-        side_b = sqrt(pow(sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35, 2) + \
-                      pow(WC[2] - 0.75, 2))
-        side_c = 1.25
-
-        angle_a = acos((side_b * side_b + side_c * side_c - side_a * side_a) / \
-                       (2 * side_b * side_c))
-        angle_b = acos((side_c * side_c + side_a * side_a - side_b * side_b) / \
-                       (2 * side_c * side_a))
-        angle_c = acos((side_a * side_a + side_b * side_b - side_c * side_c) / \
-                       (2 * side_a * side_b))
-
-        joint2 = pi / 2 - angle_a - \
-                 atan2(WC[2] - 0.75, sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35)
-        joint3 = pi / 2 - (angle_b + 0.036)
-
-        R0_3 = T0_1[0:3, 0:3] * T1_2[0:3, 0:3] * T2_3[0:3, 0:3]
-        R0_3 = R0_3.evalf(subs={theta1: joint1, theta2: joint2, theta3: joint3})
-        R3_6 = R0_3.inv("LU") * R_EE
-
-        joint4 = atan2(R3_6[2, 2], -R3_6[0, 2])
-        joint5 = atan2(sqrt(R3_6[0, 2] * R3_6[0, 2] + R3_6[2, 2] * R3_6[2, 2]), R3_6[1, 2])
-        joint6 = atan2(-R3_6[1, 1], R3_6[1, 0])
-
-        # Populate response for the IK request        
-        joint_trajectory_point.positions = \
-            [joint1, joint2, joint3, joint4, joint5, joint6]
-        joint_trajectory_list.append(joint_trajectory_point)
-
-    rospy.loginfo("length of Joint Trajectory List: %s" % len(joint_trajectory_list))
-    return CalculateIKResponse(joint_trajectory_list)
-```
+![alt text][image4]Figure 4: Result of pick and place.
 
 
